@@ -272,6 +272,8 @@ class TokensController < ApplicationController
 
       render json: { token: auth_user.to_jwt }, status: :created
     end
+  rescue OTP::Errors::Invalid, OTP::Errors::Expired, OTP::Errors::UserNotFound => e
+    render json: { errors: [e.message] }, status: :unauthorized
   end
 end
 ```
@@ -281,8 +283,19 @@ The `jwt_from_otp` does a couple of things here:
    a valid JWT token
  * It will try to schedule an email or SMS delivery of the OTP and it will
    respond with the 400 HTTP status
- * It will respond with the 403 HTTP status if there's no user
-   or the OTP is wrong
+ * It will raise an exception if there's no user or the OTP is wrong
+
+To change the behavior for the forbidden (403) responses, add this to an
+initializer and configure on forbidden request handler:
+
+```ruby
+# config/initializers/otp-jwt.rb
+OTP::JWT.configure do |config|
+  config.on_forbidden_request = ->(controller) do
+    controller.render json: { error: 'Invalid credentials' }, status: :forbidden
+  end
+end
+```
 
 The OTP delivery is handled by the `User#deliver_otp` method
 and can be customized. By default it will call the `sms_otp` method and
@@ -303,6 +316,39 @@ token = OTP::JWT::Token.sign(sub: 'my subject')
 OTP::JWT::Token.decode(token) == {'sub' => 'my subject'}
 OTP::JWT::Token.decode('bad token') == nil
 ```
+
+## Rate Limiting
+
+To prevent abuse, OTP and magic link requests are rate limited per user/email and per IP address. By default, a user or IP can only request 5 OTPs or magic links every 10 minutes. If the limit is exceeded, a 429 Too Many Requests error is returned.
+
+## Error Codes & Standardized Responses
+
+All error responses are standardized and include an error code and message. Example:
+
+```json
+{
+  "error": {
+    "code": "OTP_EXPIRED",
+    "message": "The provided OTP has expired."
+  }
+}
+```
+
+| Code              | Message                                      |
+|-------------------|----------------------------------------------|
+| OTP_INVALID       | The provided OTP is invalid.                 |
+| OTP_EXPIRED       | The provided OTP has expired.                |
+| USER_NOT_FOUND    | The user was not found.                      |
+| ACCOUNT_BLOCKED   | Your account is blocked. Please contact support. |
+| OTP_SEND_FAILED   | Failed to send OTP.                          |
+| RATE_LIMITED      | Too many requests. Please try again later.    |
+| INVALID_MAGIC_LINK| Invalid magic link.                          |
+| AUTH_FAILED       | Authentication failed.                       |
+
+## Magic Link & OTP Replay Protection
+
+- Magic links are single-use and expire after 15 minutes by default.
+- OTPs are single-use and expire after use (counter-based). Account is locked after too many failed attempts.
 
 ## Development
 

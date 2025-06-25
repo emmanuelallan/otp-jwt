@@ -1,5 +1,7 @@
+puts "spec_helper.rb loaded"
 require 'bundler/setup'
 require 'simplecov'
+require 'rails/all'
 
 SimpleCov.start do
   add_group 'Lib', 'lib'
@@ -9,10 +11,14 @@ SimpleCov.minimum_coverage 90
 
 require 'otp'
 require 'otp/jwt'
+require 'otp/jwt/token'
 require 'otp/jwt/test_helpers'
 require_relative 'dummy'
 require 'ffaker'
 require 'rspec/rails'
+require_relative '../app/models/otp/jwt/magic_link'
+require_relative '../app/models/otp/jwt/blacklisted_token'
+require_relative '../app/models/otp/jwt/refresh_token'
 
 OTP::JWT::Token.jwt_signature_key = '_'
 OTP::Mailer.default from: '_'
@@ -45,6 +51,27 @@ module Rails4RequestMethods
   end
 end
 
+# Generator spec helper
+module GeneratorSpecHelper
+  def run_generator(generator, *args)
+    silence_stream(STDOUT) do
+      generator.start(args)
+    end
+  end
+
+  def silence_stream(stream)
+    old_stream = stream.dup
+    stream.reopen(File::NULL)
+    stream.sync = true
+    yield
+  ensure
+    stream.reopen(old_stream)
+    old_stream.close
+  end
+end
+
+Rails.cache = ActiveSupport::Cache::MemoryStore.new
+
 RSpec.configure do |config|
   config.use_transactional_fixtures = true
   config.mock_with :rspec
@@ -68,4 +95,7 @@ RSpec.configure do |config|
     config.include Rails4RequestMethods, type: :request
     config.include Rails4RequestMethods, type: :controller
   end
+
+  config.include GeneratorSpecHelper, type: :generator
+  config.include Rails.application.routes.url_helpers
 end

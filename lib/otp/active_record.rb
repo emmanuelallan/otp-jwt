@@ -1,6 +1,7 @@
 require 'rotp'
 require 'active_support/concern'
 require 'active_support/configurable'
+require_relative 'errors'
 
 module OTP
   # [ActiveRecord] concern.
@@ -8,8 +9,8 @@ module OTP
     include ActiveSupport::Configurable
     extend ActiveSupport::Concern
 
-    # Length of the generated OTP, defaults to 4.
-    OTP_DIGITS = 4
+    # Length of the generated OTP, defaults to 6.
+    OTP_DIGITS = 6
 
     included do
       after_initialize :setup_otp
@@ -34,15 +35,34 @@ module OTP
     #
     # @return otp_counter on success, nil on failure
     def verify_otp(otp)
-      return nil if !valid? || !persisted? || otp_secret.blank?
+      raise OTP::Errors::AccountLocked if blocked?
+      raise OTP::Errors::Invalid if otp.blank?
+      return nil if otp_secret.blank?
 
       otp_digits = self.class.const_get(:OTP_DIGITS)
       hotp = ROTP::HOTP.new(otp_secret, digits: otp_digits)
       transaction do
-        otp_status = hotp.verify(otp.to_s, otp_counter)
+        unless hotp.verify(otp.to_s, otp_counter)
+          increment!(:otp_attempts)
+          lock_account! if otp_attempts >= self.class.max_otp_attempts
+          raise OTP::Errors::Invalid
+        end
+        update!(otp_attempts: 0)
         increment!(:otp_counter)
-        otp_status
       end
+    end
+
+    def blocked?
+      locked_at.present? && locked_at > self.class.unlock_in.ago
+    end
+
+    def lock_account!
+      update!(locked_at: Time.current)
+    end
+
+    def send_magic_link(mailer)
+      magic_link = Otp::Jwt::MagicLink.create!(user: self, token: SecureRandom.hex(32), expires_at: 15.minutes.from_now)
+      mailer.magic_link(self, magic_link).deliver_later
     end
 
     # Helper to send the OTP using the SMS job

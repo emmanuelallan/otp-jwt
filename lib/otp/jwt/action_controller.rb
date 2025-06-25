@@ -1,3 +1,5 @@
+require_relative '../errors'
+
 module OTP
   module JWT
     # [ActionController] concern.
@@ -7,15 +9,15 @@ module OTP
       #
       # @return [String] with authentication token and country shop ID.
       def jwt_from_otp(model, otp)
+        raise OTP::Errors::UserNotFound if model.blank?
+
         # Send the OTP if the model is trying to authenticate.
-        if model.present? && otp.blank?
+        if otp.blank?
           job = model.deliver_otp
           return render(json: { job_id: job.job_id }, status: :bad_request)
-        elsif model.present? && otp.present? && !model.verify_otp(otp)
-          return head(:forbidden)
-        elsif model.blank?
-          return head(:forbidden)
         end
+
+        model.verify_otp(otp)
 
         return yield(model) if block_given?
 

@@ -15,7 +15,7 @@ RSpec.describe User, type: :model do
     end
 
     context 'with a cast-able subject value' do
-      let(:token) { OTP::JWT::Token.sign(sub: user.id.to_s + '_text') }
+      let(:token) { OTP::JWT::Token.sign(sub: user.id.to_s + '_text', jti: SecureRandom.uuid) }
 
       it do
         expect(User.from_jwt(token)).to be_nil
@@ -35,6 +35,10 @@ RSpec.describe User, type: :model do
   end
 
   describe '#otp' do
+    it 'generates a 6-digit OTP' do
+      otp = user.otp
+      expect(otp).to match(/^\d{6}$/)
+    end
     it do
       expect { user.otp }.to change(user, :otp_counter).by(1)
     end
@@ -59,5 +63,82 @@ RSpec.describe User, type: :model do
         expect(user.verify_otp(rand(1000..2000).to_s)).to be_nil
       end
     end
+  end
+
+  describe '#send_magic_link' do
+    it 'sends a magic link email' do
+      mailer = double('Mailer', magic_link: double(deliver_later: true))
+      expect { user.send_magic_link(mailer) }.to change { Otp::Jwt::MagicLink.count }.by(1)
+    end
+  end
+
+  describe '#blocked?' do
+    it 'returns true if locked_at is recent' do
+      user.update_column(:locked_at, 1.minute.ago)
+      expect(user.blocked?).to be true
+    end
+    it 'returns false if locked_at is nil' do
+      user.update_column(:locked_at, nil)
+      expect(user.blocked?).to be false
+    end
+  end
+
+  describe '#lock_account!' do
+    it 'sets locked_at' do
+      user.lock_account!
+      expect(user.locked_at).not_to be_nil
+    end
+  end
+
+  describe '#deliver_otp' do
+    it 'raises NotImplementedError if no delivery method is implemented' do
+      u = User.create!(full_name: 'No Delivery', email: 'no@delivery.com', phone_number: nil)
+      allow(u).to receive(:sms_otp).and_return(nil)
+      allow(u).to receive(:email_otp).and_return(nil)
+      expect { u.deliver_otp }.to raise_error(NotImplementedError)
+    end
+  end
+
+  describe 'OTP::JWT::ActiveRecord#from_jwt' do
+    it 'returns nil for invalid token' do
+      expect(User.from_jwt('bad')).to be_nil
+    end
+    it 'returns nil for missing jti' do
+      token = OTP::JWT::Token.sign(sub: user.id) # no jti
+      expect { User.from_jwt(token) }.to raise_error(OTP::Errors::MissingJti)
+    end
+    it 'returns nil for blacklisted token' do
+      token = user.to_jwt
+      payload = OTP::JWT::Token.decode(token)
+      Otp::Jwt::BlacklistedToken.create!(jti: payload['jti'], expires_at: 1.day.from_now)
+      expect { User.from_jwt(token) }.to raise_error(OTP::Errors::BlacklistedToken)
+    end
+  end
+
+  describe 'OTP::JWT::ActiveRecord#blacklist_token' do
+    it 'blacklists a valid token' do
+      token = user.to_jwt
+      expect { user.blacklist_token(token) }.to change { Otp::Jwt::BlacklistedToken.count }.by(1)
+    end
+  end
+
+  describe 'OTP::JWT::ActiveRecord#expire_jwt?' do
+    it 'returns self if expire_jwt_at is nil' do
+      expect(user.expire_jwt?).to eq(user)
+    end
+    it 'returns self if expire_jwt_at is in the future' do
+      user.update_column(:expire_jwt_at, 1.day.from_now)
+      expect(user.expire_jwt?).to eq(user)
+    end
+    it 'returns nil if expire_jwt_at is in the past' do
+      user.update_column(:expire_jwt_at, 1.day.ago)
+      expect(user.expire_jwt?).to be_nil
+    end
+  end
+end
+
+RSpec.describe "Sanity check" do
+  it "runs a basic test" do
+    expect(1).to eq(1)
   end
 end

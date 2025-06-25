@@ -12,6 +12,13 @@ RSpec.describe OTP::JWT::Token, type: :model do
 
   describe '#sign' do
     it { expect(described_class.sign(payload)).to eq(token) }
+    it 'includes a 6-digit OTP in the payload if present' do
+      user = create_user
+      otp = user.otp
+      token = described_class.sign(sub: user.id, otp: otp)
+      decoded = described_class.decode(token)
+      expect(decoded['otp']).to match(/^\d{6}$/)
+    end
 
     context 'with the none algorithm' do
       before do
@@ -93,6 +100,16 @@ RSpec.describe OTP::JWT::Token, type: :model do
           described_class.decode(token) { |p| User.find(p['sub']) }
         ).to eq(user)
       end
+    end
+  end
+
+  describe 'magic link JWT' do
+    let(:user) { create_user }
+    let(:magic_link) { OTP::JWT::MagicLink.create!(user: user, token: SecureRandom.hex(32), expires_at: 15.minutes.from_now) }
+    it 'issues a JWT via magic link' do
+      token, refresh_token = user.issue_new_tokens
+      expect(token).not_to be_nil
+      expect(refresh_token.token).not_to be_nil
     end
   end
 end
