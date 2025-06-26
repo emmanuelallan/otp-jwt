@@ -1,4 +1,3 @@
-puts "spec_helper.rb loaded"
 require 'bundler/setup'
 require 'simplecov'
 require 'rails/all'
@@ -7,53 +6,125 @@ SimpleCov.start do
   add_group 'Lib', 'lib'
   add_group 'Tests', 'spec'
 end
-SimpleCov.minimum_coverage 90
+SimpleCov.minimum_coverage 100
 
-require 'otp'
+# Add lib directory to load path
+$LOAD_PATH.unshift(File.expand_path('../../lib', __FILE__))
+
+# Load Rails application
+require_relative 'dummy'
+
+# Load all OTP::JWT files
 require 'otp/jwt'
+require 'otp/jwt/engine'
+require 'otp/jwt/concerns/authenticatable'
+require 'otp/jwt/concerns/tokenable'
+require 'otp/jwt/concerns/lockable'
+require 'otp/jwt/concerns/magic_linkable'
+require 'otp/jwt/models/magic_link'
+require 'otp/jwt/models/blacklisted_token'
+require 'otp/jwt/jobs/cleanup_blacklisted_tokens_job'
+require 'otp/jwt/controllers/sessions_controller'
+require 'otp/jwt/errors'
 require 'otp/jwt/token'
 require 'otp/jwt/test_helpers'
-require_relative 'dummy'
+
+# Load test dependencies
 require 'ffaker'
 require 'rspec/rails'
-require_relative '../app/models/otp/jwt/magic_link'
-require_relative '../app/models/otp/jwt/blacklisted_token'
-require_relative '../app/models/otp/jwt/refresh_token'
+require 'webmock/rspec'
+require 'shoulda/matchers'
 
-OTP::JWT::Token.jwt_signature_key = '_'
-OTP::Mailer.default from: '_'
-ActiveJob::Base.queue_adapter = :test
-ActionMailer::Base.delivery_method = :test
+# Configure Rails application
+Rails.application.eager_load!
+require 'otp/jwt/token'
+require 'otp/jwt/test_helpers'
 
-module OTP::JWT::FactoryHelpers
-  # Creates an user
-  #
-  # @return [User]
-  def create_user(attrs = {})
-    User.create!(
-      full_name: FFaker::Name.name,
-      email: FFaker::Internet.email,
-      phone_number: FFaker::PhoneNumber.phone_number,
-      **attrs
-    )
+module OTP
+  module JWT
+    module FactoryHelpers
+      def create_user(attrs = {})
+        user = User.create!(
+          email: attrs[:email] || FFaker::Internet.email,
+          otp_secret: attrs[:otp_secret] || SecureRandom.hex(32),
+          refresh_token: attrs[:refresh_token] || SecureRandom.hex(32),
+          otp_attempts: attrs[:otp_attempts] || 0,
+          locked_at: attrs[:locked_at]
+        )
+        user
+      end
+    end
   end
 end
 
 module Rails4RequestMethods
   [:get, :post, :put, :delete].each do |method_name|
     define_method(method_name) do |path, named_args|
-      super(
-        path,
-        named_args.delete(:params),
-        named_args.delete(:headers)
-      )
+      if Rails::VERSION::MAJOR >= 5
+        super(path, named_args)
+      else
+        super(path, named_args[:params], named_args[:headers])
+      end
     end
   end
 end
 
+RSpec.configure do |config|
+  config.include OTP::JWT::FactoryHelpers
+  config.include Rails4RequestMethods
+  config.include RSpec::Rails::RequestExampleGroup, type: :request
+  config.include RSpec::Rails::ControllerExampleGroup, type: :controller
+  config.include RSpec::Rails::ModelExampleGroup, type: :model
+  config.include RSpec::Rails::FeatureExampleGroup, type: :feature
+  config.include RSpec::Rails::ViewExampleGroup, type: :view
+  
+  config.before(:suite) do
+    DatabaseCleaner.strategy = :transaction
+    DatabaseCleaner.clean_with(:truncation)
+  end
+  
+  config.before(:each) do
+    DatabaseCleaner.start
+    WebMock.disable_net_connect!(allow: ['localhost'])
+  end
+  
+  config.after(:each) do
+    DatabaseCleaner.clean
+    WebMock.allow_net_connect!
+  end
+  
+  config.expect_with :rspec do |expectations|
+    expectations.include_chain_clauses_in_custom_matcher_descriptions = true
+  end
+  
+  config.mock_with :rspec do |mocks|
+    mocks.verify_partial_doubles = true
+  end
+  
+  config.shared_context_metadata_behavior = :apply_to_host_groups
+  
+  config.filter_run_when_matching :focus
+  
+  config.example_status_persistence_file_path = "spec/examples.txt"
+  
+  config.disable_monkey_patching!
+  
+  config.warnings = true
+  
+  if config.files_to_run.one?
+    config.default_formatter = 'doc'
+  end
+  
+  config.profile_examples = 10
+  
+  config.order = :random
+  
+  Kernel.srand config.seed
+end
+
 # Generator spec helper
 module GeneratorSpecHelper
-  def run_generator(generator, *args)
+  def run_generator(generator, args)
     silence_stream(STDOUT) do
       generator.start(args)
     end

@@ -1,6 +1,6 @@
-module Otp
-  module Jwt
-    class RefreshToken < ApplicationRecord
+module OTP
+  module JWT
+    class RefreshToken < ::ActiveRecord::Base
       self.table_name = "otp_jwt_refresh_tokens"
       belongs_to :user
 

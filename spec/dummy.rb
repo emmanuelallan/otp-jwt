@@ -81,15 +81,15 @@ class User < ActiveRecord::Base
   include OTP::ActiveRecord
   include OTP::JWT::ActiveRecord
   # For generator test coverage:
-  # include Otp::Jwt::Concerns::User
+  # include OTP::JWT::Concerns::User
 
   # OTP configuration
   def self.max_otp_attempts
-    Otp::Jwt.max_otp_attempts
+    OTP::JWT.max_otp_attempts
   end
 
   def self.unlock_in
-    Otp::Jwt.unlock_in
+    OTP::JWT.unlock_in
   end
 
   def email_otp
@@ -132,6 +132,14 @@ class TokensController < ApplicationController
 
       render json: { token: auth_user.to_jwt }, status: :created
     end
+  rescue OTP::Errors::Invalid
+    render_error('OTP_INVALID', 'The provided OTP is invalid.', :forbidden)
+  rescue OTP::Errors::Expired
+    render_error('OTP_EXPIRED', 'The provided OTP has expired.', :forbidden)
+  rescue OTP::Errors::UserNotFound
+    render_error('USER_NOT_FOUND', 'The user was not found.', :forbidden)
+  rescue => e
+    render_error('AUTH_FAILED', "Authentication failed: #{e.message}", :internal_server_error)
   end
 
   def render_error(code, message, status)
@@ -174,11 +182,11 @@ class TokensController < ApplicationController
       render json: { token: auth_user.to_jwt, user: { id: auth_user.id, email: auth_user.email } }, status: :ok
     end
   rescue OTP::Errors::Invalid
-    render_error('OTP_INVALID', 'The provided OTP is invalid.', :unauthorized)
+    render_error('OTP_INVALID', 'The provided OTP is invalid.', :forbidden)
   rescue OTP::Errors::Expired
-    render_error('OTP_EXPIRED', 'The provided OTP has expired.', :unauthorized)
+    render_error('OTP_EXPIRED', 'The provided OTP has expired.', :forbidden)
   rescue OTP::Errors::UserNotFound
-    render_error('USER_NOT_FOUND', 'The user was not found.', :unauthorized)
+    render_error('USER_NOT_FOUND', 'The user was not found.', :forbidden)
   rescue => e
     render_error('AUTH_FAILED', "Authentication failed: #{e.message}", :internal_server_error)
   end
@@ -206,7 +214,7 @@ class TokensController < ApplicationController
     if rate_limited?(ip_key) || rate_limited?(token_key)
       return render_error('RATE_LIMITED', 'Too many magic link requests. Please try again later.', :too_many_requests)
     end
-    magic_link = Otp::Jwt::MagicLink.find_by(token: params[:token])
+    magic_link = OTP::JWT::MagicLink.find_by(token: params[:token])
     if magic_link&.active?
       magic_link.revoke!
       new_access_token, new_refresh_token = magic_link.user.issue_new_tokens

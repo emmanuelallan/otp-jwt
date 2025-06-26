@@ -61,7 +61,7 @@ module OTP
     end
 
     def send_magic_link(mailer)
-      magic_link = Otp::Jwt::MagicLink.create!(user: self, token: SecureRandom.hex(32), expires_at: 15.minutes.from_now)
+      magic_link = OTP::JWT::MagicLink.create!(user: self, token: SecureRandom.hex(32), expires_at: 15.minutes.from_now)
       mailer.magic_link(self, magic_link).deliver_later
     end
 

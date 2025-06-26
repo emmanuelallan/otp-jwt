@@ -1,13 +1,15 @@
-module Otp
-  module Jwt
-    class ApplicationRecord < ActiveRecord::Base
-      self.abstract_class = true
-    end
-
-    class MagicLink < ApplicationRecord
+module OTP
+  module JWT
+    class MagicLink < ::ActiveRecord::Base
       self.table_name = "otp_jwt_magic_links"
+      
       belongs_to :user
-
+      
+      validates :token, presence: true, uniqueness: true
+      validates :expires_at, presence: true
+      
+      before_create :set_expires_at
+      
       def active?
         !revoked? && !expired?
       end
@@ -22,6 +24,12 @@ module Otp
 
       def revoke!
         update!(revoked_at: Time.current)
+      end
+
+      private
+
+      def set_expires_at
+        self.expires_at ||= Time.current + OTP::JWT.config.otp_expiration
       end
     end
   end

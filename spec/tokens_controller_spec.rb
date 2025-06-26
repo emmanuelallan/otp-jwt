@@ -49,7 +49,7 @@ RSpec.describe TokensController, type: :request do
   end
 
   context 'with magic link' do
-    let(:magic_link) { Otp::Jwt::MagicLink.create!(user: user, token: SecureRandom.hex(32), expires_at: 15.minutes.from_now) }
+    let(:magic_link) { OTP::JWT::MagicLink.create!(user: user, token: SecureRandom.hex(32), expires_at: 15.minutes.from_now) }
     it 'authenticates with a valid magic link' do
       get magic_link_path(token: magic_link.token)
       expect(response).to have_http_status(:ok)
@@ -77,7 +77,7 @@ RSpec.describe TokensController, type: :request do
     end
 
     it 'limits magic link requests per IP' do
-      magic_link = Otp::Jwt::MagicLink.create!(user: user, token: SecureRandom.hex(32), expires_at: 15.minutes.from_now)
+      magic_link = OTP::JWT::MagicLink.create!(user: user, token: SecureRandom.hex(32), expires_at: 15.minutes.from_now)
       5.times do
         get '/magic_link', params: { token: magic_link.token }, headers: headers
       end
@@ -131,12 +131,12 @@ RSpec.describe TokensController, type: :request do
 
   describe 'magic_link error handling' do
     it 'returns error code if magic link is revoked' do
-      magic_link = Otp::Jwt::MagicLink.create!(user: user, token: SecureRandom.hex(32), expires_at: 15.minutes.from_now, revoked_at: Time.current)
+      magic_link = OTP::JWT::MagicLink.create!(user: user, token: SecureRandom.hex(32), expires_at: 15.minutes.from_now, revoked_at: Time.current)
       get '/magic_link', params: { token: magic_link.token }, headers: json_headers
       expect(response_json['error']['code']).to eq('INVALID_MAGIC_LINK')
     end
     it 'returns error code if magic link is expired' do
-      magic_link = Otp::Jwt::MagicLink.create!(user: user, token: SecureRandom.hex(32), expires_at: 1.minute.ago)
+      magic_link = OTP::JWT::MagicLink.create!(user: user, token: SecureRandom.hex(32), expires_at: 1.minute.ago)
       get '/magic_link', params: { token: magic_link.token }, headers: json_headers
       expect(response_json['error']['code']).to eq('INVALID_MAGIC_LINK')
     end

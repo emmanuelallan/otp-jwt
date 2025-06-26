@@ -1,5 +1,5 @@
-module Otp
-  module Jwt
+module OTP
+  module JWT
     class TokensController < ActionController::Base
       protect_from_forgery with: :null_session
       include OTP::JWT::ActionController
@@ -26,7 +26,8 @@ module Otp
         if rate_limited?(ip_key) || rate_limited?(user_key)
           return render_error('RATE_LIMITED', 'Too many OTP requests. Please try again later.', :too_many_requests)
         end
-        user = User.find_by(email: params[:email]&.downcase)
+        user_class = user_model_class
+        user = user_class.find_by(email: params[:email]&.downcase)
         if user.present?
           user.email_otp
           render json: { message: "OTP sent to #{params[:email]}. Check your inbox." }, status: :ok
@@ -38,7 +39,8 @@ module Otp
       end
 
       def verify_otp
-        jwt_from_otp(User.find_by(email: params[:email]&.downcase), params[:otp]) do |auth_user|
+        user_class = user_model_class
+        jwt_from_otp(user_class.find_by(email: params[:email]&.downcase), params[:otp]) do |auth_user|
           if auth_user.blocked?
             return render_error('ACCOUNT_BLOCKED', 'Your account is blocked. Please contact support.', :forbidden)
           end
@@ -78,7 +80,7 @@ module Otp
         if rate_limited?(ip_key) || rate_limited?(token_key)
           return render_error('RATE_LIMITED', 'Too many magic link requests. Please try again later.', :too_many_requests)
         end
-        magic_link = Otp::Jwt::MagicLink.find_by(token: params[:token])
+        magic_link = OTP::JWT::MagicLink.find_by(token: params[:token])
         if magic_link&.active?
           magic_link.revoke!
           new_access_token, new_refresh_token = magic_link.user.issue_new_tokens
@@ -91,13 +93,26 @@ module Otp
       private
 
       def current_user
-        @jwt_user ||= User.from_jwt(request_authorization_header)
+        @jwt_user ||= user_model_class.from_jwt(request_authorization_header)
       end
 
       def current_user!
         current_user || raise('User authentication failed')
       rescue
         head(:unauthorized)
+      end
+      
+      def user_model_class
+        # Try to find the user model - this should be configurable
+        @user_model_class ||= begin
+          # Look for common user model names
+          %w[User AdminUser].each do |model_name|
+            model = model_name.constantize rescue nil
+            return model if model && model.include?(OTP::JWT::ActiveRecord)
+          end
+          # Fallback to User if no configured model found
+          User
+        end
       end
     end
   end

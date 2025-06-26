@@ -1,53 +1,163 @@
-# OTP JWT ⎆
+# OTP JWT
 
-One time password (email, SMS) authentication support for HTTP APIs.
+A modern, secure passwordless authentication solution for Rails APIs using One-Time Passwords (OTP) and JSON Web Tokens (JWT). This gem provides a complete authentication flow that eliminates the need for traditional passwords while maintaining high security standards.
 
-> The man who wrote the book on password management has a confession to make:
-> He blew it.
->
->— [WSJ.com](https://www.wsj.com/articles/the-man-who-wrote-those-password-rules-has-a-new-tip-n3v-r-m1-d-1502124118)
+## Features
 
-This project provides a couple of mixins to help you build
-applications/HTTP APIs without asking your users to provide passwords.
+- ✨ **OTP Delivery**: Send one-time codes via email or SMS
+- 🔐 **JWT Authentication**: Secure token-based authentication
+- 🔗 **Magic Links**: Email-based single-use login links
+- 🔄 **Token Refresh**: Secure token renewal mechanism
+- 🔒 **Account Locking**: Protection against brute-force attacks
+- 🔗 **Customizable**: Fully pluggable delivery methods and token generation
+- 🔧 **Easy Integration**: Simple Rails generator for quick setup
+- ✅ **Production Ready**: Comprehensive testing and security measures
 
-[Your browser probably can work seamlessly with OTPs](https://web.dev/web-otp/)!!! :heart_eyes:
+## Requirements
 
-## About
+- Ruby 3.4.0 or higher
+- Rails 8.0 or higher
+- Database with Active Record support
+- Email/SMS delivery service (configurable)
 
-The goal of this project is to provide support for one time passwords
-which are delivered via different channels (email, SMS), along with a
-simple and easy to use JWT authentication.
+## Installation
 
-Main goals:
- * No _magic_ please
- * No DSLs please
- * Less code, less maintenance
- * Good docs and test coverage
- * Keep it up-to-date (or at least tell people this is no longer maintained)
+Add this line to your application's Gemfile:
 
-The available features include:
- * Flexible models support for
-   [counter based OTP](https://github.com/mdp/rotp#counter-based-otps)
- * Flexible JWT token generation helpers for models and arbitrary data
- * Pluggable authentication flow using the OTP and JWT
- * Pluggable OTP mailer
- * Pluggable OTP SMS background processing job
+```ruby
+gem 'otp-jwt'
+```
 
+And then execute:
 
-This little project wouldn't be possible without the previous work on
-[ROTP](https://github.com/mdp/rotp)
-and [JWT](https://github.com/jwt/ruby-jwt/).
+```bash
+bundle install
+```
 
-Thanks to everyone who worked on these amazing projects!
+Or install it yourself as:
 
+```bash
+gem install otp-jwt
+```
 
-## Sponsors
+## Setup
 
-I'm grateful for the following companies for supporting this project!
+1. Run the generator:
 
-<p align="center">
-<a href="https://www.luneteyewear.com"><img src="https://user-images.githubusercontent.com/112147/136836142-2bfba96e-447f-4eb6-b137-2445aee81b37.png"/></a>
-<a href="https://www.startuplandia.io"><img src="https://user-images.githubusercontent.com/112147/136836147-93f8ab17-2465-4477-a7ab-e38255483c66.png"/></a>
+```bash
+rails generate otp_jwt:install
+```
+
+2. Run the migrations:
+
+```bash
+rails db:migrate
+```
+
+3. Add OTP-JWT to your User model:
+
+```ruby
+class User < ApplicationRecord
+  include OTP::JWT::Authenticatable
+  
+  # Optional: Customize OTP delivery
+  def deliver_otp(otp)
+    # Your custom delivery logic here
+  end
+end
+```
+
+## Usage
+
+### 1. Request OTP
+
+```ruby
+# Generate and send OTP
+user.generate_and_send_otp
+
+# Generate magic link
+user.generate_magic_link
+```
+
+### 2. Verify OTP
+
+```ruby
+# Verify OTP code
+user.verify_otp('123456')
+
+# Verify magic link token
+user.verify_magic_link_token('token')
+```
+
+### 3. Get JWT
+
+```ruby
+# Get JWT token
+user.generate_jwt
+
+# Refresh JWT
+user.refresh_jwt
+```
+
+### 4. Sign Out
+
+```ruby
+# Sign out user
+user.sign_out
+
+# Blacklist token
+user.blacklist_token('token')
+```
+
+## Configuration
+
+```ruby
+OTP::JWT.configure do |config|
+  # OTP Settings
+  config.otp_length = 6
+  config.otp_expiration = 15.minutes
+  
+  # JWT Settings
+  config.jwt_expiration = 24.hours
+  config.refresh_token_expiration = 7.days
+  
+  # Account Locking
+  config.max_failed_attempts = 5
+  config.lockout_duration = 1.hour
+  
+  # Custom Error Handling
+  config.on_forbidden_request = ->(controller) do
+    controller.render json: { error: 'Invalid credentials' }, status: :forbidden
+  end
+end
+```
+
+## Security Features
+
+- Account locking after multiple failed attempts
+- Token blacklisting
+- Rate limiting
+- Secure token generation and verification
+- Encrypted OTP storage
+- Secure passwordless authentication flow
+
+## Testing
+
+```bash
+bundle exec rspec
+```
+
+## Contributing
+
+1. Fork it
+2. Create your feature branch (`git checkout -b my-new-feature`)
+3. Commit your changes (`git commit -am 'Add some feature'`)
+4. Push to the branch (`git push origin my-new-feature`)
+5. Create a new Pull Request
+
+## License
+
+This project is licensed under the MIT License - see the LICENSE.txt file for details
 </p>
 
 ## Installation
@@ -65,6 +175,87 @@ And then execute:
 Or install it yourself as:
 
     $ gem install otp-jwt
+
+## Quick Start
+
+### 1. Install the gem
+
+```bash
+rails generate otp:jwt:install
+```
+
+This creates the initializer at `config/initializers/otp_jwt.rb`.
+
+### 2. Add OTP/JWT to your User model
+
+```bash
+rails generate otp:jwt:user User
+```
+
+This will:
+- Add the necessary OTP/JWT fields to your User model
+- Include the required concerns in your User model
+- Create a migration to add the required database fields
+
+### 3. Run migrations
+
+```bash
+rails db:migrate
+```
+
+### 4. Configure your User model
+
+Update your User model to implement OTP delivery:
+
+```ruby
+class User < ApplicationRecord
+  include OTP::JWT::Concerns::User
+  
+  # Implement email OTP delivery
+  def email_otp
+    UserMailer.otp_email(self, otp).deliver_later
+  end
+  
+  # Optional: Implement SMS OTP delivery
+  def sms_otp
+    SmsService.send_otp(phone_number, otp) if phone_number.present?
+  end
+end
+```
+
+### 5. Mount the engine in your routes
+
+```ruby
+# config/routes.rb
+Rails.application.routes.draw do
+  mount OTP::JWT::Engine => '/auth'
+end
+```
+
+### 6. Configure your initializer
+
+```ruby
+# config/initializers/otp_jwt.rb
+OTP::JWT.configure do |config|
+  # Set your JWT secret key
+  config.jwt_signature_key = ENV['OTP_JWT_SIGNATURE_KEY']
+  
+  # Configure OTP settings
+  config.otp_digits = 6
+  config.max_otp_attempts = 5
+  config.unlock_in = 15.minutes
+end
+```
+
+## API Endpoints
+
+Once installed, the following endpoints are available:
+
+- `POST /auth/request_otp` - Request OTP via email
+- `POST /auth/verify_otp` - Verify OTP and get JWT
+- `POST /auth/refresh` - Refresh access token
+- `DELETE /auth/sign_out` - Sign out and blacklist token
+- `GET /auth/magic_link` - Authenticate via magic link
 
 ## Usage
 

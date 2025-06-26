@@ -14,8 +14,8 @@ module OTP
         # @return [ActiveRecord::Base] model
         def from_jwt(token, claim_name = 'sub')
           OTP::JWT::Token.decode(token) do |payload|
-            raise OTP::Errors::MissingJti unless payload['jti']
-            raise OTP::Errors::BlacklistedToken if Otp::Jwt::BlacklistedToken.exists?(jti: payload['jti'])
+            return nil unless payload['jti']
+            return nil if OTP::JWT::BlacklistedToken.exists?(jti: payload['jti'])
 
             val = payload[claim_name]
             pk_col = self.column_for_attribute(self.primary_key)
@@ -54,7 +54,7 @@ module OTP
         decoded_token = OTP::JWT::Token.decode(token)
         jti = decoded_token['jti']
         exp = decoded_token['exp']
-        Otp::Jwt::BlacklistedToken.create!(jti: jti, expires_at: Time.at(exp))
+        OTP::JWT::BlacklistedToken.create!(jti: jti, expires_at: Time.at(exp))
       end
 
       def issue_new_tokens
